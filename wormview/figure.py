@@ -171,9 +171,9 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
                 showticklabels=False, title="", showspikes=False, color=INK_DIM)
     fig.update_layout(
         scene=dict(
+            annotations=_end_labels(pts, lo, hi, pad),
             xaxis={**axis, "range": [lo[0] - pad[0], hi[0] + pad[0]],
-                   "title": dict(text="head  \u2014  anterior / posterior  "
-                                      "\u2014  tail",
+                   "title": dict(text="anterior  \u2192  posterior",
                                  font=dict(size=10, color=INK_DIM))},
             yaxis={**axis, "range": [lo[1] - pad[1], hi[1] + pad[1]]},
             zaxis={**axis, "range": [lo[2] - pad[2], hi[2] + pad[2]]},
@@ -186,7 +186,60 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
                         projection=dict(type="perspective"))),
         paper_bgcolor=BG, plot_bgcolor=BG,
         font=dict(family=FONT, color=INK, size=12),
-        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.7)",
-                    bordercolor=LINE, borderwidth=1, font=dict(size=11)),
+        # bottom-left: the top-left corner is where the HEAD label sits, since
+        # the head is the low end of the body axis
+        legend=dict(x=0.01, y=0.02, xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.72)", bordercolor=LINE,
+                    borderwidth=1, font=dict(size=11)),
         margin=dict(l=0, r=0, t=0, b=0), uirevision="keep")
     return fig, click_map
+
+
+# --------------------------------------------------------------------------
+# which end is which
+# --------------------------------------------------------------------------
+
+# In the Virtual Worm coordinate frame the anterior-posterior axis is plotted as
+# x, and anterior (the head) is the LOW end -- the pharyngeal neurons I1-I6 sit at
+# about -300 um and the posterior touch neuron PLM at about +410 um.
+HEAD_IS_LOW_X = True
+
+
+def _end_labels(pts, lo, hi, pad):
+    """3D annotations marking the head and the tail.
+
+    Scene annotations rather than a text trace, for two reasons: they stay
+    legible at any zoom, and they add no trace, so the click map's trace indices
+    are unaffected.
+
+    Each label is parked just beyond its end of the body and vertically level
+    with the neurons actually there, so it reads as belonging to that end rather
+    than floating in space.
+    """
+    span = hi[0] - lo[0]
+    near_head = pts[pts[:, 0] < lo[0] + 0.08 * span]
+    near_tail = pts[pts[:, 0] > hi[0] - 0.08 * span]
+    head_z = float(near_head[:, 2].mean()) if len(near_head) else float(pts[:, 2].mean())
+    tail_z = float(near_tail[:, 2].mean()) if len(near_tail) else float(pts[:, 2].mean())
+
+    def label(text, sub, x, z, xanchor):
+        return dict(
+            x=x, y=0.0, z=z,
+            text=f"<b>{text}</b><br><span style='font-size:10px'>{sub}</span>",
+            showarrow=True, arrowhead=2, arrowsize=1.1, arrowwidth=1.4,
+            arrowcolor=INK_DIM, ax=0, ay=-60,
+            font=dict(size=16, color=INK), xanchor="center",
+            bgcolor="rgba(255,255,255,0.82)", bordercolor=LINE, borderwidth=1,
+            borderpad=5, opacity=0.97)
+
+    # Just INSIDE each end, not beyond it: with the body filling the frame,
+    # anything placed outside the data range lands off-canvas and is never seen.
+    inset = 0.03 * span
+    head_x = lo[0] + inset
+    tail_x = hi[0] - inset
+    if not HEAD_IS_LOW_X:
+        head_x, tail_x = tail_x, head_x
+        head_z, tail_z = tail_z, head_z
+
+    return [label("HEAD", "anterior", head_x, head_z, "right"),
+            label("TAIL", "posterior", tail_x, tail_z, "left")]
