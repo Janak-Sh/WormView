@@ -43,8 +43,18 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
     Neurites are the 13,566 real segments from the Virtual Worm model, not straight
     lines between cell bodies. The straight synaptic lines are off by default --
     with 1,764 of them they formed the grey sheet that used to bury the anatomy.
+
+    Returns (figure, click_map). click_map maps a trace index to the neuron names
+    of that trace's points, in order, so a click can be resolved from
+    curveNumber + pointNumber.
+
+    That indirection is necessary, not stylistic: since plotly 6.0, `customdata`
+    is dropped from Dash's clickData (plotly/plotly.py#5119), so resolving a click
+    through customdata alone silently fails on every click. curveNumber and
+    pointNumber are always present.
     """
     apply_spread(payload, node_index, spread)
+    click_map = {}
     nodes = payload["nodes"]
     names = [n["name"] for n in nodes]
     morph = payload.get("morphology", {})
@@ -97,6 +107,7 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
         vals = np.array([float(tpm.loc[gene, n["name"]])
                          if n["name"] in tpm.columns else 0.0 for n in nodes])
         logged = np.log10(vals + 1)
+        click_map[len(fig.data)] = list(names)
         fig.add_trace(go.Scatter3d(
             x=[n["x"] for n in nodes], y=[n["y"] for n in nodes],
             z=[n["z"] for n in nodes], mode="markers", customdata=names,
@@ -119,6 +130,7 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
             if not members:
                 continue
             idx = [names.index(m["name"]) for m in members]
+            click_map[len(fig.data)] = [m["name"] for m in members]
             fig.add_trace(go.Scatter3d(
                 x=[m["x"] for m in members], y=[m["y"] for m in members],
                 z=[m["z"] for m in members], mode="markers",
@@ -177,4 +189,4 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
         legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.7)",
                     bordercolor=LINE, borderwidth=1, font=dict(size=11)),
         margin=dict(l=0, r=0, t=0, b=0), uirevision="keep")
-    return fig
+    return fig, click_map

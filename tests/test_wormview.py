@@ -244,8 +244,9 @@ def test_figure_builds_for_every_option_combination(loaded):
         dict(selected="PLM", gene="cle-1", tpm=tpm, show_synapses=True),
         dict(spread=3.0),
     ):
-        fig = figure.make_figure(payload, node_index, **kwargs)
+        fig, click_map = figure.make_figure(payload, node_index, **kwargs)
         assert len(fig.data) > 0, kwargs
+        assert click_map, f"no clickable traces for {kwargs}"
 
 
 def test_every_clickable_trace_carries_a_neuron_name(loaded):
@@ -257,7 +258,7 @@ def test_every_clickable_trace_carries_a_neuron_name(loaded):
     names = set(node_index)
 
     for kwargs in (dict(), dict(gene="fmi-1", tpm=tpm)):
-        fig = figure.make_figure(payload, node_index, **kwargs)
+        fig, _ = figure.make_figure(payload, node_index, **kwargs)
         markers = [t for t in fig.data if getattr(t, "mode", None) == "markers"]
         assert markers, "no clickable markers at all"
         for trace in markers:
@@ -269,7 +270,7 @@ def test_selecting_a_neuron_highlights_its_own_neurites(loaded):
     from wormview import figure
     _, payload = loaded
     node_index = {n["name"]: n for n in payload["nodes"]}
-    fig = figure.make_figure(payload, node_index, selected="AVA")
+    fig, _ = figure.make_figure(payload, node_index, selected="AVA")
     assert any("AVA" in (t.name or "") for t in fig.data)
 
 
@@ -302,3 +303,58 @@ def test_secreted_genes_carry_an_autonomy_caveat():
     absence in neurons proves nothing, and the UI must say so."""
     for gene in ("nid-1", "cle-1", "unc-52", "lin-44"):
         assert gene_meta.autonomy_caveat(gene), f"{gene} needs a caveat"
+
+
+def test_click_resolves_without_customdata(loaded):
+    """The real bug behind "clicking does nothing".
+
+    Since plotly 6.0, Dash's clickData no longer carries `customdata`
+    (plotly/plotly.py#5119), so a callback that reads only customdata silently
+    fails on every click. The click map must resolve a neuron from
+    curveNumber + pointNumber alone.
+
+    An earlier HTTP test passed only because it hand-crafted clickData WITH
+    customdata -- a payload the browser never sends. This asserts the path the
+    browser actually takes.
+    """
+    from wormview import figure
+    tpm, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    for kwargs in (dict(), dict(gene="fmi-1", tpm=tpm)):
+        fig, click_map = figure.make_figure(payload, node_index, **kwargs)
+        assert click_map, "no clickable traces"
+
+        for curve, names in click_map.items():
+            trace = fig.data[curve]
+            assert getattr(trace, "mode", None) == "markers", \
+                f"trace {curve} is in the click map but is not a marker trace"
+            # one name per plotted point, or an index lookup goes to the wrong neuron
+            assert len(names) == len(trace.x), \
+                f"trace {curve}: {len(names)} names for {len(trace.x)} points"
+            for name in names:
+                assert name in node_index
+
+        # simulate what the browser actually sends: no customdata
+        curve = sorted(click_map)[0]
+        point = {"curveNumber": curve, "pointNumber": 0}
+        resolved = click_map[curve][point["pointNumber"]]
+        assert resolved in node_index
+
+
+def test_click_map_point_order_matches_the_plotted_coordinates(loaded):
+    """A name is looked up by position, so the order must match exactly. If the
+    two drift apart, clicks silently select the wrong neuron -- worse than not
+    working at all, because it looks like it works."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+    fig, click_map = figure.make_figure(payload, node_index)
+
+    for curve, names in click_map.items():
+        trace = fig.data[curve]
+        for i, name in enumerate(names):
+            node = node_index[name]
+            assert np.isclose(trace.x[i], node["x"]), f"{name} x mismatch at {i}"
+            assert np.isclose(trace.y[i], node["y"]), f"{name} y mismatch at {i}"
+            assert np.isclose(trace.z[i], node["z"]), f"{name} z mismatch at {i}"

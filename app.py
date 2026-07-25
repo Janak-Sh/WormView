@@ -101,6 +101,9 @@ def build_layout(names, gene_options):
         ], style={"padding": "0 20px 14px", "maxWidth": "440px"}),
 
         dcc.Store(id="sel", data=None),
+        # trace index -> neuron names, rebuilt with every figure.
+        # Needed because plotly >= 6.0 drops customdata from clickData.
+        dcc.Store(id="clickmap", data={}),
 
         html.Div([
             html.Div(
@@ -149,31 +152,53 @@ def main():
 
     @app.callback(Output("sel", "data"),
                   Input("net", "clickData"), Input("pick", "value"),
-                  State("sel", "data"))
-    def choose(click, picked, current):
-        """Resolve what is selected. Only a click that actually hit a cell body
-        changes it -- clicks on neurites, the body wall or empty space leave the
-        current selection alone, which is what makes clicking feel reliable."""
+                  State("sel", "data"), State("clickmap", "data"))
+    def choose(click, picked, current, clickmap):
+        """Resolve what was clicked.
+
+        Since plotly 6.0, clickData no longer carries `customdata`, so the neuron
+        is looked up by curveNumber + pointNumber against the map the figure
+        emitted. customdata is still tried first, for older plotly versions.
+
+        Only a click that lands on a cell body changes the selection: clicks on a
+        neurite, the body wall or empty space leave it alone, so a near miss does
+        not wipe the panel.
+        """
         if ctx.triggered_id == "pick":
             return picked or current
-        if click and click.get("points"):
-            name = click["points"][0].get("customdata")
-            if isinstance(name, str) and name in node_index:
-                return name
+        if not (click and click.get("points")):
+            return current
+
+        point = click["points"][0]
+
+        name = point.get("customdata")
+        if isinstance(name, list) and name:
+            name = name[0]
+        if isinstance(name, str) and name in node_index:
+            return name
+
+        curve, index = point.get("curveNumber"), point.get("pointNumber")
+        if curve is not None and index is not None:
+            # a Store round-trips through JSON, so keys arrive as strings
+            trace = (clickmap or {}).get(str(curve)) or (clickmap or {}).get(curve)
+            if trace and 0 <= index < len(trace) and trace[index] in node_index:
+                return trace[index]
         return current
 
     @app.callback(Output("net", "figure"), Output("panel", "children"),
+                  Output("clickmap", "data"),
                   Input("sel", "data"), Input("mode", "value"),
                   Input("gene", "value"), Input("layers", "value"),
                   Input("spread", "value"))
     def update(selected, mode, gene, layers, spread):
-        fig = figure.make_figure(
+        fig, click_map = figure.make_figure(
             payload, node_index, selected=selected,
             gene=gene if mode == "gene" else None, tpm=tpm,
             show_labels="labels" in (layers or []),
             show_synapses="syn" in (layers or []),
             spread=float(spread or 0))
-        return fig, panel.panel_for(node_index.get(selected), node_index)
+        return (fig, panel.panel_for(node_index.get(selected), node_index),
+                click_map)
 
     url = f"http://127.0.0.1:{PORT}"
     print(f"\n  open {url}\n  (ctrl-c to stop)\n")
