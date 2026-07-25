@@ -37,7 +37,8 @@ def edge_lines(payload, node_index, only=None):
 
 
 def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
-                show_labels=False, spread=0.0, show_synapses=False):
+                show_labels=False, spread=0.0, show_synapses=False,
+                groups=None, show_body=True):
     """The 3D scene: translucent body, real neurite morphology, clickable somata.
 
     Neurites are the 13,566 real segments from the Virtual Worm model, not straight
@@ -55,14 +56,24 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
     """
     apply_spread(payload, node_index, spread)
     click_map = {}
-    nodes = payload["nodes"]
+    all_nodes = payload["nodes"]
+    visible = set(payload["groups"] if groups is None else groups)
+    nodes = [n for n in all_nodes if n["group"] in visible]
     names = [n["name"] for n in nodes]
     morph = payload.get("morphology", {})
+    if not nodes:                      # every group switched off
+        nodes, names = all_nodes[:1], [all_nodes[0]["name"]]
 
     fig = go.Figure()
 
-    # 1. the body wall
-    if payload.get("surface"):
+    # 1. the body wall.
+    #
+    # Toggleable, and it matters: the cell bodies sit INSIDE this surface, so a
+    # click aimed at a neuron travels through it. If the surface captures the
+    # click instead, the callback sees a trace that is not in the click map and
+    # keeps the current selection -- which reads as "clicking does nothing".
+    # Turning the wall off is the reliable way to hit a crowded neuron.
+    if show_body and payload.get("surface"):
         X, Y, Z = payload["surface"]
         fig.add_trace(go.Surface(
             x=X, y=Y, z=Z, showscale=False, hoverinfo="skip", opacity=0.13,
@@ -75,6 +86,8 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
 
     # 2. every neurite, thin, coloured by functional group
     for group in payload["groups"]:
+        if group not in visible:
+            continue
         members = [n["name"] for n in nodes if n["group"] == group]
         segs = [seg for m in members for seg in morph.get(m, [])]
         if not segs:
@@ -82,26 +95,28 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
         xs, ys, zs = anatomy.segments_to_lines(segs)
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip", name=group,
-            legendgroup=group, opacity=0.45,
+            showlegend=False, opacity=0.45,
             line=dict(color=GROUP_COLOR[group], width=1.3)))
 
     # 3. optional straight synaptic connections
     if show_synapses:
         ex_, ey, ez = edge_lines(payload, node_index)
         fig.add_trace(go.Scatter3d(
-            x=ex_, y=ey, z=ez, mode="lines", hoverinfo="skip",
+            x=ex_, y=ey, z=ez, mode="lines", hoverinfo="skip", showlegend=False,
             name="synaptic links", line=dict(color=EDGE_DIM, width=0.8)))
 
     # 4. the selected neuron: its own neurites, bright and thick
     if selected and selected in morph:
         xs, ys, zs = anatomy.segments_to_lines(morph[selected])
         fig.add_trace(go.Scatter3d(
-            x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip",
+            x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip", showlegend=False,
             name=f"{selected} neurites", line=dict(color=HILITE, width=5)))
 
     # 5. cell bodies -- the clickable layer
     sizes = np.array([n["degree"] for n in nodes], dtype=float)
-    sizes = 5.5 + 8.5 * (sizes / max(sizes.max(), 1)) ** 0.6
+    # Generous sizes: these are the click targets, and in 3D the hit area is the
+    # marker itself. Small dots are precise but nearly unclickable.
+    sizes = 8.0 + 10.0 * (sizes / max(sizes.max(), 1)) ** 0.6
 
     if gene and tpm is not None and gene in tpm.index:
         vals = np.array([float(tpm.loc[gene, n["name"]])
@@ -126,6 +141,8 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
                             thickness=12, len=0.5, x=1.0, outlinewidth=0))))
     else:
         for group in payload["groups"]:
+            if group not in visible:
+                continue
             members = [n for n in nodes if n["group"] == group]
             if not members:
                 continue
@@ -134,7 +151,7 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
             fig.add_trace(go.Scatter3d(
                 x=[m["x"] for m in members], y=[m["y"] for m in members],
                 z=[m["z"] for m in members], mode="markers",
-                name=group, legendgroup=group, showlegend=False,
+                name=group, showlegend=False,
                 customdata=[m["name"] for m in members],
                 hovertext=[
                     f"<b>{m['name']}</b><br>{group}"
@@ -165,7 +182,7 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
 
     pts = np.array([[n["x"], n["y"], n["z"]] for n in nodes])
     lo, hi = pts.min(axis=0), pts.max(axis=0)
-    pad = 0.10 * (hi - lo)
+    pad = 0.17 * (hi - lo)
     pad[pad == 0] = 1.0
     axis = dict(showbackground=False, showgrid=False, zeroline=False,
                 showticklabels=False, title="", showspikes=False, color=INK_DIM)
@@ -180,17 +197,15 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
             # The animal is ~13:1. At true proportions it is an unreadable
             # thread, so the cross-section is exaggerated; position ALONG the
             # body stays to scale.
-            aspectmode="manual", aspectratio=dict(x=6, y=1, z=1), bgcolor=BG,
-            camera=dict(eye=dict(x=0.0, y=-2.4, z=0.9), center=dict(x=0, y=0, z=0),
+            aspectmode="manual", aspectratio=dict(x=4.6, y=1, z=1), bgcolor=BG,
+            camera=dict(eye=dict(x=0.0, y=-2.1, z=0.8), center=dict(x=0, y=0, z=0),
                         up=dict(x=0, y=0, z=1),
                         projection=dict(type="perspective"))),
         paper_bgcolor=BG, plot_bgcolor=BG,
         font=dict(family=FONT, color=INK, size=12),
         # bottom-left: the top-left corner is where the HEAD label sits, since
         # the head is the low end of the body axis
-        legend=dict(x=0.01, y=0.02, xanchor="left", yanchor="bottom",
-                    bgcolor="rgba(255,255,255,0.72)", bordercolor=LINE,
-                    borderwidth=1, font=dict(size=11)),
+        showlegend=False,
         margin=dict(l=0, r=0, t=0, b=0), uirevision="keep")
     return fig, click_map
 

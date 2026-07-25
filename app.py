@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT))
 
 from wormview import anatomy, connectome as cn, figure, panel   # noqa: E402
 from wormview.data import MissingData, load_matrix              # noqa: E402
-from wormview.theme import BG, FONT, INK, INK_DIM, LINE, PANEL  # noqa: E402
+from wormview.theme import (BG, FONT, GROUP_COLOR, INK, INK_DIM,  # noqa: E402
+                            LINE, PANEL)
 
 PORT = 8050
 
@@ -54,61 +55,116 @@ def load_everything():
     return tpm, payload
 
 
-def build_layout(names, gene_options):
-    label = {"color": INK_DIM, "fontSize": "11px", "marginBottom": "3px"}
+CONTROL_BAR = {
+    "display": "flex", "alignItems": "flex-end", "gap": "26px",
+    "flexWrap": "wrap", "padding": "12px 20px",
+    "background": "#f7f7f5", "borderTop": f"1px solid {LINE}",
+    "borderBottom": f"1px solid {LINE}",
+}
+
+
+def _field(label_text, control, width=None):
+    """A labelled control, so every label sits on the same baseline."""
+    style = {"display": "flex", "flexDirection": "column", "gap": "4px"}
+    if width:
+        style["width"] = width
     return html.Div([
+        html.Label(label_text, style={"color": INK_DIM, "fontSize": "11px",
+                                      "letterSpacing": "0.02em"}),
+        control,
+    ], style=style)
+
+
+GROUPS = ("sensory", "interneuron", "motor", "other")
+
+
+def _colour_key():
+    """Colour key that is also the on/off control.
+
+    Plotly's own legend was click-to-toggle, and removing it took that away. This
+    puts the toggles back as real checkboxes: same function, but in a fixed place
+    instead of floating over the animal.
+    """
+    swatch = {"display": "inline-block", "width": "16px", "height": "3px",
+              "borderRadius": "2px", "marginRight": "6px",
+              "verticalAlign": "middle"}
+    options = [
+        {"value": g,
+         "label": html.Span([html.Span(style={**swatch,
+                                              "background": GROUP_COLOR[g]}), g],
+                            style={"fontSize": "11.5px", "color": INK,
+                                   "marginRight": "13px"})}
+        for g in GROUPS
+    ]
+    return _field(
+        "show neuron groups  (click to toggle)",
+        dcc.Checklist(id="groups", options=options, value=list(GROUPS),
+                      inline=True, style={"paddingBottom": "3px"}))
+
+
+def build_layout(names, gene_options):
+    return html.Div([
+        # ---- header ------------------------------------------------------
         html.Div([
             html.H1("C. elegans nervous system explorer",
-                    style={"margin": 0, "fontSize": "20px", "color": INK}),
-            html.Span("302 neurons at their real positions, with real neurite "
-                      "morphology  ·  wiring from Cook et al. 2019  ·  "
-                      "expression from CeNGEN  ·  click a cell body",
-                      style={"color": INK_DIM, "fontSize": "12px"}),
-        ], style={"padding": "14px 20px 10px"}),
+                    style={"margin": 0, "fontSize": "19px", "fontWeight": 600,
+                           "color": INK, "letterSpacing": "-0.01em"}),
+            html.Div("302 neurons at their real positions, with real neurite "
+                     "morphology  ·  wiring from Cook et al. 2019  ·  expression "
+                     "from CeNGEN",
+                     style={"color": INK_DIM, "fontSize": "12px",
+                            "marginTop": "3px"}),
+        ], style={"padding": "16px 20px 12px"}),
 
+        # ---- control bar -------------------------------------------------
         html.Div([
-            html.Div([html.Div("colour by", style=label),
-                      dcc.RadioItems(
-                          id="mode", value="type", inline=True,
-                          options=[{"label": " neuron type", "value": "type"},
-                                   {"label": " one gene", "value": "gene"}],
-                          style={"color": INK, "fontSize": "12px"})]),
-            html.Div([html.Div("gene", style=label),
-                      dcc.Dropdown(id="gene", options=gene_options, value="fmi-1",
-                                   clearable=False,
-                                   style={"width": "190px", "color": "#111"})]),
-            html.Div([html.Div("jump to neuron", style=label),
-                      dcc.Dropdown(id="pick", options=names, value=None,
-                                   placeholder="e.g. AWA",
-                                   style={"width": "170px", "color": "#111"})]),
-            html.Div([html.Div("show", style=label),
-                      dcc.Checklist(
-                          id="layers", inline=True,
-                          options=[{"label": " labels", "value": "labels"},
-                                   {"label": " synaptic links", "value": "syn"}],
-                          value=[], style={"color": INK, "fontSize": "12px"})]),
-        ], style={"display": "flex", "alignItems": "flex-end", "gap": "22px",
-                  "padding": "0 20px 6px", "flexWrap": "wrap"}),
+            _field("colour by", dcc.RadioItems(
+                id="mode", value="type", inline=True,
+                options=[{"label": " neuron type", "value": "type"},
+                         {"label": " one gene", "value": "gene"}],
+                labelStyle={"marginRight": "12px"},
+                style={"color": INK, "fontSize": "12px",
+                       "paddingBottom": "3px"})),
 
-        html.Div([
-            html.Div("spread crowded cell bodies apart — the head is dense. "
-                     "Note this detaches a cell body from its own neurite; leave "
-                     "at 0 for true anatomy.",
-                     style={**label, "marginBottom": "2px"}),
-            dcc.Slider(id="spread", min=0, max=3, step=0.25, value=0,
-                       marks={0: "true positions", 1.5: "1.5x", 3: "3x"},
-                       tooltip={"placement": "bottom", "always_visible": False}),
-        ], style={"padding": "0 20px 14px", "maxWidth": "440px"}),
+            _field("gene", dcc.Dropdown(
+                id="gene", options=gene_options, value="fmi-1", clearable=False,
+                style={"fontSize": "13px"}), width="180px"),
+
+            _field("jump to neuron", dcc.Dropdown(
+                id="pick", options=names, value=None, placeholder="e.g. AWA",
+                style={"fontSize": "13px"}), width="160px"),
+
+            _field("show", dcc.Checklist(
+                id="layers", inline=True,
+                options=[{"label": " body wall", "value": "body"},
+                         {"label": " labels", "value": "labels"},
+                         {"label": " synaptic links", "value": "syn"}],
+                value=["body"], labelStyle={"marginRight": "12px"},
+                style={"color": INK, "fontSize": "12px",
+                       "paddingBottom": "3px"})),
+
+            _field("spread crowded cell bodies", html.Div(
+                dcc.Slider(id="spread", min=0, max=3, step=0.5, value=0,
+                           marks={0: {"label": "true"}, 1.5: {"label": "1.5x"},
+                                  3: {"label": "3x"}},
+                           tooltip=None),
+                # the slider draws its end labels outside its own box, so without
+                # this padding the first and last are clipped
+                style={"width": "190px", "padding": "0 14px"})),
+
+            _colour_key(),
+        ], style=CONTROL_BAR),
 
         dcc.Store(id="sel", data=None),
         # trace index -> neuron names, rebuilt with every figure.
         # Needed because plotly >= 6.0 drops customdata from clickData.
         dcc.Store(id="clickmap", data={}),
 
+        # ---- plot + panel ------------------------------------------------
         html.Div([
             html.Div(
                 dcc.Graph(
-                    id="net", style={"height": "72vh", "width": "100%"},
+                    id="net", style={"height": "74vh", "width": "100%"},
                     # responsive=True makes Plotly resize its canvas to the
                     # container. Without it the canvas keeps its initial size, the
                     # container crops it, and every pointer coordinate is offset --
@@ -121,11 +177,12 @@ def build_layout(names, gene_options):
                 style={"minWidth": 0}),
             html.Div(id="panel", style={
                 "background": PANEL, "borderLeft": f"1px solid {LINE}",
-                "padding": "18px 20px", "overflowY": "auto", "height": "72vh",
-                "boxSizing": "border-box"}),
-        ], style={"display": "grid", "gridTemplateColumns": "minmax(0,1fr) 340px",
+                "padding": "20px 22px", "overflowY": "auto", "height": "74vh",
+                "boxSizing": "border-box", "fontSize": "13px"}),
+        ], style={"display": "grid", "gridTemplateColumns": "minmax(0,1fr) 330px",
                   "alignItems": "start"}),
-    ], style={"background": BG, "minHeight": "100vh", "fontFamily": FONT})
+    ], style={"background": BG, "minHeight": "100vh", "fontFamily": FONT,
+              "WebkitFontSmoothing": "antialiased"})
 
 
 def main():
@@ -189,13 +246,15 @@ def main():
                   Output("clickmap", "data"),
                   Input("sel", "data"), Input("mode", "value"),
                   Input("gene", "value"), Input("layers", "value"),
-                  Input("spread", "value"))
-    def update(selected, mode, gene, layers, spread):
+                  Input("spread", "value"), Input("groups", "value"))
+    def update(selected, mode, gene, layers, spread, groups):
         fig, click_map = figure.make_figure(
             payload, node_index, selected=selected,
             gene=gene if mode == "gene" else None, tpm=tpm,
             show_labels="labels" in (layers or []),
             show_synapses="syn" in (layers or []),
+            show_body="body" in (layers or []),
+            groups=groups if groups is not None else list(GROUPS),
             spread=float(spread or 0))
         return (fig, panel.panel_for(node_index.get(selected), node_index),
                 click_map)

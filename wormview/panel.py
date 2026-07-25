@@ -22,20 +22,23 @@ def _chip(text, color=None, bold=False, light_text=False):
 
 def panel_for(node, node_index):
     if node is None:
+        row = {"color": INK_DIM, "fontSize": "12px", "lineHeight": "1.5",
+               "marginBottom": "9px"}
         return html.Div([
-            html.H3("Click a coloured dot", style={"marginTop": 0, "color": INK}),
-            html.P("Each dot is a neuron type, at its real position in the animal "
-                   "— head on the left, tail on the right. Lines are real "
-                   "connections. Drag to rotate, scroll to zoom.",
-                   style={"color": INK_DIM, "lineHeight": "1.65"}),
-            html.P("Click directly on a dot (not a line, not empty space) and its "
-                   "connections light up gold and its details appear here. If the "
-                   "dots are too crowded to hit, raise the spread slider or use "
-                   "\u201cjump to neuron\u201d.",
-                   style={"color": INK_DIM, "lineHeight": "1.65"}),
-            html.P("Switch \u201ccolour by\u201d to one gene to paint the whole "
-                   "nervous system by that gene\u2019s expression.",
-                   style={"color": INK_DIM, "lineHeight": "1.65"}),
+            html.Div("Nothing selected", style={
+                "fontSize": "14px", "fontWeight": 600, "color": INK,
+                "marginBottom": "12px"}),
+            html.Div([html.B("Click a dot"),
+                      " to see what it connects to and what it expresses."],
+                     style=row),
+            html.Div([html.B("Drag"), " to rotate, ", html.B("scroll"),
+                      " to zoom, ", html.B("double-click"), " to reset."],
+                     style=row),
+            html.Div("Dots are cell bodies at their real positions. Lines are "
+                     "their real neurites.", style=row),
+            html.Div("Hard to hit a dot? Turn off “body wall” — the cell "
+                     "bodies sit inside it, so it can absorb the click. Or use "
+                     "“jump to neuron”, or raise the spread slider.", style=row),
         ])
 
     partners = node["partners"]
@@ -46,15 +49,17 @@ def panel_for(node, node_index):
         return [html.Div([
             html.Span(f"{arrow} ", style={"color": INK_DIM}),
             html.Span(p["name"], style={"color": INK, "fontWeight": "600"}),
-            html.Span(f"  {p['w']} synapses",
+            html.Span(f"  {p['w']}",
                       style={"color": INK_DIM, "fontSize": "11px"}),
-        ], style={"padding": "1px 0"}) for p in items[:12]]
+        ], style={"padding": "1px 0", "fontSize": "12.5px"})
+            for p in items[:10]]
 
     watch = node["watch_genes"]
     return html.Div([
         html.Div([
-            html.H2(node["name"], style={"margin": "0 6px 0 0", "color": INK,
-                                         "display": "inline-block"}),
+            html.Span(node["name"], style={
+                "fontSize": "22px", "fontWeight": 600, "color": INK,
+                "marginRight": "8px", "letterSpacing": "-0.01em"}),
             _chip(node["group"], GROUP_COLOR[node["group"]], bold=True,
                   light_text=True),
         ]),
@@ -66,23 +71,35 @@ def panel_for(node, node_index):
         ], style={"marginTop": "8px"}),
 
         html.H4(f"Sends to  ({len(out_)})",
-                style={"color": INK, "marginBottom": "4px"}),
+                style={"color": INK, "marginBottom": "4px", "fontSize": "12px",
+                       "marginTop": "18px", "fontWeight": 600,
+                       "textTransform": "uppercase",
+                       "letterSpacing": "0.04em"}),
         html.Div(partner_rows(out_, "→") or
                  [html.Div("none", style={"color": INK_DIM})]),
 
         html.H4(f"Receives from  ({len(in_)})",
-                style={"color": INK, "marginBottom": "4px"}),
+                style={"color": INK, "marginBottom": "4px", "fontSize": "12px",
+                       "marginTop": "18px", "fontWeight": 600,
+                       "textTransform": "uppercase",
+                       "letterSpacing": "0.04em"}),
         html.Div(partner_rows(in_, "←") or
                  [html.Div("none", style={"color": INK_DIM})]),
 
         html.H4("Most strongly expressed genes",
-                style={"color": INK, "marginBottom": "6px"}),
+                style={"color": INK, "marginBottom": "6px", "fontSize": "12px",
+                       "marginTop": "18px", "fontWeight": 600,
+                       "textTransform": "uppercase",
+                       "letterSpacing": "0.04em"}),
         html.Div([_chip(f"{g['g']}  {g['tpm']:,}",
                         CHIP_WATCH if g["watch"] else None, bold=g["watch"])
                   for g in node["top_genes"]]),
 
         html.H4("Watch-list genes switched on here",
-                style={"color": INK, "marginBottom": "6px"}),
+                style={"color": INK, "marginBottom": "6px", "fontSize": "12px",
+                       "marginTop": "18px", "fontWeight": 600,
+                       "textTransform": "uppercase",
+                       "letterSpacing": "0.04em"}),
         html.Div([_chip(f"{g['g']}  {g['tpm']:,}", CHIP_WATCH, bold=True)
                   for g in watch] or
                  [html.Span("none of the watch-list detected here",

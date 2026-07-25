@@ -358,3 +358,76 @@ def test_click_map_point_order_matches_the_plotted_coordinates(loaded):
             assert np.isclose(trace.x[i], node["x"]), f"{name} x mismatch at {i}"
             assert np.isclose(trace.y[i], node["y"]), f"{name} y mismatch at {i}"
             assert np.isclose(trace.z[i], node["z"]), f"{name} z mismatch at {i}"
+
+
+# --------------------------------------------------------------------------
+# 6. group toggles and the body wall
+# --------------------------------------------------------------------------
+
+def test_group_toggle_hides_that_group(loaded):
+    """The colour key doubles as on/off controls, replacing what Plotly's
+    click-to-toggle legend used to do."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    _, all_map = figure.make_figure(payload, node_index)
+    _, motor_map = figure.make_figure(payload, node_index, groups=["motor"])
+
+    all_names = {n for names in all_map.values() for n in names}
+    motor_names = {n for names in motor_map.values() for n in names}
+    assert motor_names < all_names
+    assert all(node_index[n]["group"] == "motor" for n in motor_names)
+
+
+def test_body_wall_can_be_turned_off(loaded):
+    """Cell bodies sit inside the wall, so a click aimed at one passes through it.
+    Turning the wall off has to be possible or crowded neurons stay unclickable."""
+    import plotly.graph_objects as go
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    def has_surface(**kw):
+        fig, _ = figure.make_figure(payload, node_index, **kw)
+        return any(isinstance(t, go.Surface) for t in fig.data)
+
+    assert has_surface(show_body=True)
+    assert not has_surface(show_body=False)
+
+
+def test_click_map_stays_consistent_under_every_filter(loaded):
+    """Filtering changes how many traces exist, so a stale index would resolve a
+    click to the wrong neuron -- worse than not working, because it looks fine."""
+    from wormview import figure
+    tpm, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    for kwargs in (
+        dict(),
+        dict(groups=["motor"]),
+        dict(groups=["sensory", "motor"], show_body=False),
+        dict(groups=["interneuron"], gene="fmi-1", tpm=tpm),
+        dict(groups=["motor"], show_synapses=True, show_labels=True),
+        dict(groups=[]),
+    ):
+        fig, click_map = figure.make_figure(payload, node_index, **kwargs)
+        for curve, names in click_map.items():
+            trace = fig.data[curve]
+            assert getattr(trace, "mode", None) == "markers", \
+                f"{kwargs}: trace {curve} in the click map is not markers"
+            assert len(names) == len(trace.x), \
+                f"{kwargs}: trace {curve} has {len(names)} names, {len(trace.x)} points"
+            for i, name in enumerate(names):
+                assert np.isclose(trace.x[i], node_index[name]["x"])
+
+
+def test_markers_are_large_enough_to_click(loaded):
+    """In a 3D scene the hit area is the marker, so tiny dots are unclickable."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+    fig, click_map = figure.make_figure(payload, node_index)
+    for curve in click_map:
+        sizes = fig.data[curve].marker.size
+        assert min(sizes) >= 7, f"smallest marker is {min(sizes)}px"
