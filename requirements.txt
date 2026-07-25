@@ -1,0 +1,11 @@
+# Core: the 3D explorer (explorer_app.py)
+pandas>=2.0
+numpy>=1.24
+plotly>=5.20
+dash>=2.16
+
+# Static figures (run_atlas.py)
+matplotlib>=3.7
+
+# Tests
+pytest>=7.4

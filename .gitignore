@@ -1,0 +1,24 @@
+# local working notes, not part of the code
+Local/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# downloaded data (fetch with the --fetch-data flags; see README)
+data/*.csv
+data/*.json
+data/connectome/
+data/neuroml/
+
+# generated output
+figures/
+*.html
+
+# editor / tooling
+.claude/
+.DS_Store
+.idea/
+.vscode/
