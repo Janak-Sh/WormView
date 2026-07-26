@@ -51,6 +51,10 @@ def load_everything():
     # the wall is fitted to the neurites, not just the cell bodies: nerve cords run
     # right along the body wall and reach much further out than the somata
     payload["surface"] = anatomy.worm_surface(positions, payload["morphology"])
+    # where each connection's two neurites actually touch, rather than a straight
+    # line between cell bodies (see anatomy.contact_points for why)
+    payload["contacts"] = anatomy.contact_points(
+        edges[~edges.self_loop], payload["morphology"])
     payload["missing_positions"] = missing
     return tpm, payload
 
@@ -138,7 +142,7 @@ def build_layout(names, gene_options):
                 id="layers", inline=True,
                 options=[{"label": " body wall", "value": "body"},
                          {"label": " labels", "value": "labels"},
-                         {"label": " synaptic links", "value": "syn"}],
+                         {"label": " synapses", "value": "syn"}],
                 value=["body"], labelStyle={"marginRight": "12px"},
                 style={"color": INK, "fontSize": "12px",
                        "paddingBottom": "3px"})),

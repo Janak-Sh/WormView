@@ -19,7 +19,7 @@ GROUP_COLOR = {
 }
 
 HILITE = "#d4a017"                        # the selected neuron
-EDGE_DIM = "rgba(90,100,125,0.16)"        # straight synaptic links
+SYNAPSE = "#7d3cc4"                       # synapse contact points
 BODY = [[0, "#9fb6d8"], [1, "#c8d6e8"]]   # body wall
 
 # Sequential ramp for gene expression: one light-to-dark hue, then hot at the top.

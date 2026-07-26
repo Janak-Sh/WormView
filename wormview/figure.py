@@ -9,8 +9,8 @@ import numpy as np
 import plotly.graph_objects as go
 
 from . import anatomy
-from .theme import (BG, BODY, EDGE_DIM, FONT, GENE_SCALE, GROUP_COLOR, HILITE,
-                    INK, INK_DIM, LINE)
+from .theme import (BG, BODY, FONT, GENE_SCALE, GROUP_COLOR, HILITE, INK,
+                    INK_DIM, LINE, SYNAPSE)
 
 
 def apply_spread(payload, node_index, spread):
@@ -98,12 +98,33 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
             showlegend=False, opacity=0.45,
             line=dict(color=GROUP_COLOR[group], width=1.3)))
 
-    # 3. optional straight synaptic connections
-    if show_synapses:
-        ex_, ey, ez = edge_lines(payload, node_index)
+    # 3. optional synapses, drawn where they actually are
+    #
+    # Not as straight lines between cell bodies. A synapse forms where two
+    # NEURITES touch: PVR sits in the tail but synapses onto IL1 in the head, so a
+    # soma-to-soma line is 690 um long and points at the wrong end of the animal.
+    # Across all 1,764 connections the neurites touch within 5 um in 99% of cases,
+    # while soma-to-soma exceeds 300 um for 22% -- so the old lines were a graph
+    # abstraction dressed up as anatomy. A dot at the point of closest approach is
+    # the honest version, and it also removes the grey haze those lines created.
+    if show_synapses and payload.get("contacts"):
+        contacts = payload["contacts"]
+        if selected:
+            contacts = [c for c in contacts
+                        if c["pre"] == selected or c["post"] == selected] or contacts
+        weights = np.array([c["weight"] for c in contacts], dtype=float)
         fig.add_trace(go.Scatter3d(
-            x=ex_, y=ey, z=ez, mode="lines", hoverinfo="skip", showlegend=False,
-            name="synaptic links", line=dict(color=EDGE_DIM, width=0.8)))
+            x=[c["x"] for c in contacts], y=[c["y"] for c in contacts],
+            z=[c["z"] for c in contacts], mode="markers", showlegend=False,
+            name="synapses",
+            hovertext=[f"<b>{c['pre']} &#8594; {c['post']}</b>"
+                       f"<br>{c['weight']} synapses"
+                       f"<br>neurites {c['gap']:.1f} um apart here"
+                       for c in contacts],
+            hoverinfo="text",
+            marker=dict(size=2.5 + 5.5 * (weights / weights.max()) ** 0.5,
+                        color=SYNAPSE, opacity=0.55,
+                        line=dict(width=0))))
 
     # 4. the selected neuron: its own neurites, bright and thick
     if selected and selected in morph:
