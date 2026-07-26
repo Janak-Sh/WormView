@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 
 from . import anatomy
 from .theme import (BG, BODY, FONT, GENE_SCALE, GROUP_COLOR, HILITE, INK,
-                    INK_DIM, LINE, SYNAPSE)
+                    INK_DIM, LINE, PARTNER, SYNAPSE)
 
 
 def apply_spread(payload, node_index, spread):
@@ -84,19 +84,49 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
             contours=dict(x=dict(highlight=False), y=dict(highlight=False),
                           z=dict(highlight=False)), name="body"))
 
-    # 2. every neurite, thin, coloured by functional group
-    for group in payload["groups"]:
-        if group not in visible:
-            continue
-        members = [n["name"] for n in nodes if n["group"] == group]
-        segs = [seg for m in members for seg in morph.get(m, [])]
-        if not segs:
-            continue
-        xs, ys, zs = anatomy.segments_to_lines(segs)
-        fig.add_trace(go.Scatter3d(
-            x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip", name=group,
-            showlegend=False, opacity=0.45,
-            line=dict(color=GROUP_COLOR[group], width=1.3)))
+    # 2. every neurite.
+    #
+    # In gene mode the WHOLE cell is coloured by expression, not just its cell
+    # body: a gene like mec-7 then lights up the touch neurons' long processes
+    # running down the body, which is the point of asking where a gene acts.
+    # Plotly takes a per-point colour array on a 3D line, so one trace carries the
+    # gradient. Separator points (x=None) still need a numeric colour to keep the
+    # array the same length as the coordinates; the value is never drawn.
+    gene_mode = bool(gene) and tpm is not None and gene in tpm.index
+    if gene_mode:
+        expr = {n["name"]: (float(tpm.loc[gene, n["name"]])
+                            if n["name"] in tpm.columns else 0.0) for n in nodes}
+        cmax = max(np.log10(max(expr.values()) + 1), 1e-6)
+        xs, ys, zs, cols = [], [], [], []
+        for name in names:
+            segs = morph.get(name)
+            if not segs:
+                continue
+            value = float(np.log10(expr[name] + 1))
+            for a, b in segs:
+                xs += [a[0], b[0], None]
+                ys += [a[1], b[1], None]
+                zs += [a[2], b[2], None]
+                cols += [value, value, value]
+        if xs:
+            fig.add_trace(go.Scatter3d(
+                x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip",
+                name="neurites", showlegend=False, opacity=0.7,
+                line=dict(color=cols, colorscale=GENE_SCALE, cmin=0, cmax=cmax,
+                          width=1.6)))
+    else:
+        for group in payload["groups"]:
+            if group not in visible:
+                continue
+            members = [n["name"] for n in nodes if n["group"] == group]
+            segs = [seg for m in members for seg in morph.get(m, [])]
+            if not segs:
+                continue
+            xs, ys, zs = anatomy.segments_to_lines(segs)
+            fig.add_trace(go.Scatter3d(
+                x=xs, y=ys, z=zs, mode="lines", hoverinfo="skip", name=group,
+                showlegend=False, opacity=0.45,
+                line=dict(color=GROUP_COLOR[group], width=1.3)))
 
     # 3. optional synapses, drawn where they actually are
     #
@@ -139,7 +169,7 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
     # marker itself. Small dots are precise but nearly unclickable.
     sizes = 8.0 + 10.0 * (sizes / max(sizes.max(), 1)) ** 0.6
 
-    if gene and tpm is not None and gene in tpm.index:
+    if gene_mode:
         vals = np.array([float(tpm.loc[gene, n["name"]])
                          if n["name"] in tpm.columns else 0.0 for n in nodes])
         logged = np.log10(vals + 1)
@@ -184,7 +214,32 @@ def make_figure(payload, node_index, selected=None, gene=None, tpm=None,
                             color=GROUP_COLOR[group], opacity=1.0,
                             line=dict(color="rgba(255,255,255,0.9)", width=1.0))))
 
-    # 6. ring the selection so it stays findable while rotating
+    # 6. ring the selected neuron's partners.
+    #
+    # The panel lists them; this shows WHERE they are. The rings go into the click
+    # map too, so a highlighted partner can be clicked to jump to it -- and so a
+    # click landing on a ring resolves to that neuron instead of falling through
+    # and appearing to do nothing.
+    if selected and selected in node_index:
+        partners = sorted({q["name"] for q in node_index[selected]["partners"]
+                           if q["name"] in node_index
+                           and node_index[q["name"]]["group"] in visible
+                           and q["name"] != selected})
+        if partners:
+            click_map[len(fig.data)] = partners
+            fig.add_trace(go.Scatter3d(
+                x=[node_index[q]["x"] for q in partners],
+                y=[node_index[q]["y"] for q in partners],
+                z=[node_index[q]["z"] for q in partners],
+                mode="markers", showlegend=False, name="partners",
+                customdata=partners,
+                hovertext=[f"<b>{q}</b><br>partner of {selected}"
+                           f"<br>click to select" for q in partners],
+                hoverinfo="text",
+                marker=dict(size=20, color="rgba(0,0,0,0)",
+                            line=dict(color=PARTNER, width=3.0))))
+
+    # 7. ring the selection so it stays findable while rotating
     if selected and selected in node_index:
         sel = node_index[selected]
         fig.add_trace(go.Scatter3d(

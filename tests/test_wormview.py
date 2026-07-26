@@ -431,3 +431,97 @@ def test_markers_are_large_enough_to_click(loaded):
     for curve in click_map:
         sizes = fig.data[curve].marker.size
         assert min(sizes) >= 7, f"smallest marker is {min(sizes)}px"
+
+
+# --------------------------------------------------------------------------
+# 7. expression on the whole cell, and partner highlighting
+# --------------------------------------------------------------------------
+
+def test_gene_mode_colours_the_neurites_not_only_the_cell_bodies(loaded):
+    """"Show expression on the neuron" means the whole cell. Colouring only the
+    cell bodies leaves a gene like mec-7 as four dots instead of four long
+    processes running down the body."""
+    from wormview import figure
+    tpm, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    fig, _ = figure.make_figure(payload, node_index, gene="mec-7", tpm=tpm)
+    neurites = [t for t in fig.data if t.name == "neurites"]
+    assert len(neurites) == 1, "gene mode should draw one gradient neurite trace"
+
+    colours = neurites[0].line.color
+    assert not isinstance(colours, str), "neurites must carry a per-point colour array"
+    # Plotly rejects None inside a colour array, so separators need a real number
+    assert all(c is not None for c in colours)
+    assert len(colours) == len(neurites[0].x), "colour array must match coordinates"
+    assert max(colours) > min(colours), "no variation, so nothing is being shown"
+
+
+def test_type_mode_still_colours_neurites_by_group(loaded):
+    """The original view must survive the addition."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+    fig, _ = figure.make_figure(payload, node_index)
+    names = {t.name for t in fig.data}
+    assert {"sensory", "interneuron", "motor"} <= names
+
+
+def test_selecting_a_neuron_rings_its_partners(loaded):
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    fig, _ = figure.make_figure(payload, node_index, selected="ALM")
+    rings = [t for t in fig.data if t.name == "partners"]
+    assert rings, "no partner rings"
+
+    expected = {q["name"] for q in node_index["ALM"]["partners"]
+                if q["name"] != "ALM"}
+    assert set(rings[0].customdata) == expected
+
+
+def test_partner_rings_are_clickable(loaded):
+    """Rings sit on top of the cell bodies, so if they were not in the click map a
+    click landing on one would resolve to nothing and appear to do nothing. Being
+    clickable also makes them useful: click a partner to jump to it."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+
+    fig, click_map = figure.make_figure(payload, node_index, selected="ALM")
+    ring_curves = [c for c in click_map if fig.data[c].name == "partners"]
+    assert ring_curves, "partner rings are not in the click map"
+    for curve in ring_curves:
+        names = click_map[curve]
+        assert len(names) == len(fig.data[curve].x)
+        for i, name in enumerate(names):
+            assert np.isclose(fig.data[curve].x[i], node_index[name]["x"])
+
+
+def test_no_partner_rings_without_a_selection(loaded):
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+    fig, _ = figure.make_figure(payload, node_index)
+    assert not any(t.name == "partners" for t in fig.data)
+
+
+def test_partner_rings_respect_the_group_filter(loaded):
+    """A hidden group must not get rings, or the filter silently leaks."""
+    from wormview import figure
+    _, payload = loaded
+    node_index = {n["name"]: n for n in payload["nodes"]}
+    fig, _ = figure.make_figure(payload, node_index, selected="ALM",
+                                groups=["motor"])
+    rings = [t for t in fig.data if t.name == "partners"]
+    if rings:
+        for name in rings[0].customdata:
+            assert node_index[name]["group"] == "motor"
+
+
+def test_partner_ring_colour_is_not_a_group_colour(loaded):
+    """The rings were invisible at first because they used the motor colour."""
+    from wormview import theme
+    assert theme.PARTNER not in theme.GROUP_COLOR.values()
+    assert theme.PARTNER != theme.HILITE
