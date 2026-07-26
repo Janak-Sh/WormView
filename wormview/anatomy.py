@@ -183,18 +183,42 @@ def load_positions(valid_classes):
     return positions, counts, missing
 
 
-def worm_surface(positions, morphology=None, n_rings=140, n_theta=44):
-    """A smooth translucent body wall for the nervous system to sit inside.
+def _smooth(values, window):
+    """Moving average with edge padding, so ends are not pulled toward zero."""
+    if window < 3:
+        return values
+    if window % 2 == 0:
+        window += 1
+    pad = window // 2
+    kernel = np.ones(window) / window
+    return np.convolve(np.pad(values, pad, mode="edge"), kernel, "valid")
 
-    A tapered tube with an elliptical cross-section, following the animal's
-    dorsoventral curve. Deliberately schematic: the silhouette of a worm, not a
-    scan of one.
 
-    It must be fitted to the NEURITES, not just the cell bodies. Nerve cords and
-    sensory dendrites run right along the body wall and reach much further out
-    than the somata do, so a tube sized to cell bodies leaves most of the
-    morphology hanging outside it -- which is what made the body and the wireframe
-    look like two unrelated objects.
+def _fill_gaps(values):
+    """Linearly interpolate slices that had too few points to measure."""
+    idx = np.arange(len(values))
+    good = ~np.isnan(values)
+    if not good.any():
+        return np.zeros_like(values)
+    return np.interp(idx, idx[good], values[good])
+
+
+def worm_surface(positions, morphology=None, n_rings=160, n_theta=44):
+    """A translucent body wall that follows the nervous system.
+
+    The centre-line is measured LOCALLY -- the median position of the neurites in
+    each thin slice along the body -- then smoothed. An earlier version fitted a
+    single cubic polynomial to the whole animal, which cannot work: this worm is in
+    an S-shaped posture whose centre-line wanders over 130 um dorsoventrally, and a
+    cubic can only bend twice. It was off by up to 29 um in the mid-body, against a
+    body half-height of about 35 um -- so the wall sat almost a full radius away
+    from the neurons it was supposed to contain.
+
+    The radius is measured locally too, so the animal naturally thickens in the
+    middle and narrows toward the ends instead of relying on a fixed taper.
+
+    Fitted to the neurites rather than just the cell bodies: nerve cords run right
+    along the body wall and reach much further out than the somata do.
     """
     if not positions:
         return None
@@ -207,27 +231,51 @@ def worm_surface(positions, morphology=None, n_rings=140, n_theta=44):
     pts = np.array(cloud, dtype=float)
     ap, lr, dv = pts[:, 0], pts[:, 1], pts[:, 2]
 
+    # Extend a little past the last neurite so the rounded cap closes beyond the
+    # tips rather than through them -- a handful of tail neurite ends (ALN, AVG)
+    # otherwise poke out of the very end of the body.
     ap_lo, ap_hi = ap.min(), ap.max()
-    length = ap_hi - ap_lo
-    centres = np.linspace(ap_lo - 0.02 * length, ap_hi + 0.02 * length, n_rings)
+    margin = 0.012 * (ap_hi - ap_lo)
+    ap_lo, ap_hi = ap_lo - margin, ap_hi + margin
+    edges = np.linspace(ap_lo, ap_hi, n_rings + 1)
+    centres = (edges[:-1] + edges[1:]) / 2.0
 
-    # the body drifts dorsally in the head; follow it with a smooth fit
-    fit = np.polyfit(ap, dv, 3)
-    mid_dv = np.polyval(fit, centres)
+    mid_lr = np.full(n_rings, np.nan)
+    mid_dv = np.full(n_rings, np.nan)
+    rad_lr = np.full(n_rings, np.nan)
+    rad_dv = np.full(n_rings, np.nan)
 
-    # generous: the wall should sit outside everything it contains
-    half_lr = np.percentile(np.abs(lr), 99.5) + 8.0
-    half_dv = np.percentile(np.abs(dv - np.polyval(fit, ap)), 99.5) + 10.0
+    # a wider window than one slice, so thinly-populated slices still measure
+    reach = (ap_hi - ap_lo) / n_rings * 3.0
+    for i, c in enumerate(centres):
+        near = np.abs(ap - c) <= reach
+        if near.sum() < 4:
+            continue
+        mid_lr[i] = np.median(lr[near])
+        mid_dv[i] = np.median(dv[near])
+        rad_lr[i] = np.percentile(np.abs(lr[near] - mid_lr[i]), 98)
+        rad_dv[i] = np.percentile(np.abs(dv[near] - mid_dv[i]), 98)
 
-    # taper: blunt nose, fuller middle, pointed tail
+    mid_lr, mid_dv = _fill_gaps(mid_lr), _fill_gaps(mid_dv)
+    rad_lr, rad_dv = _fill_gaps(rad_lr), _fill_gaps(rad_dv)
+
+    # smooth the centre-line lightly (it must keep following the posture) and the
+    # radius more heavily (it should read as a smooth body, not a lumpy tube)
+    mid_lr, mid_dv = _smooth(mid_lr, 7), _smooth(mid_dv, 7)
+    rad_lr = _smooth(rad_lr, 25) + 9.0
+    rad_dv = _smooth(rad_dv, 25) + 9.0
+
+    # round off the nose and tail only, over the last few percent of the length
     t = np.linspace(0.0, 1.0, n_rings)
-    taper = np.sin(np.pi * np.clip(t, 0, 1)) ** 0.42
-    taper = np.clip(taper * (1.0 - 0.30 * t), 0.10, 1.0)
+    cap = np.clip(np.minimum(t, 1.0 - t) / 0.05, 0.0, 1.0) ** 0.5
+    cap = 0.25 + 0.75 * cap
+    rad_lr *= cap
+    rad_dv *= cap
 
     theta = np.linspace(0, 2 * np.pi, n_theta)
     X = np.repeat(centres[:, None], n_theta, axis=1)
-    Y = (half_lr * taper)[:, None] * np.cos(theta)[None, :]
-    Z = mid_dv[:, None] + (half_dv * taper)[:, None] * np.sin(theta)[None, :]
+    Y = mid_lr[:, None] + rad_lr[:, None] * np.cos(theta)[None, :]
+    Z = mid_dv[:, None] + rad_dv[:, None] * np.sin(theta)[None, :]
     return X, Y, Z
 
 
