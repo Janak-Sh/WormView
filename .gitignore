@@ -22,3 +22,6 @@ figures/
 .DS_Store
 .idea/
 .vscode/
+
+# video sources; the committed GIFs are generated from these
+assets/*.mov

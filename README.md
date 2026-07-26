@@ -9,6 +9,16 @@ and what it expresses.
 
 Three public datasets joined into one browsable picture — no Blender, no Docker.
 
+![Rotating the nervous system in 3D](assets/3d_viewer.gif)
+
+*Drag to rotate the animal. Every line is a real measured neurite; every dot is a
+cell body at its real position.*
+
+![Colouring the nervous system by one gene](assets/gene_selector.gif)
+
+*Hover any cell body for its details, or recolour the whole nervous system by any
+of 13,669 genes.*
+
 ---
 
 ## Quick start
@@ -32,11 +42,18 @@ Drag to rotate, scroll to zoom, click a cell body to inspect it.
 | Dot size | number of synaptic connections |
 | Colour | sensory / interneuron / motor — or one gene's expression |
 | Gold | the selected neuron's own neurites |
+| Magenta rings | the selected neuron's synaptic partners — click one to jump to it |
+| Violet dots | synapses, placed where the two neurites actually touch |
 | Translucent shell | schematic body wall |
 
-**Controls.** Colour by neuron type or by any single gene. Jump to a neuron by
-name. Toggle labels and straight synaptic links. Spread crowded cell bodies apart
-— which never moves a neuron *along* the body, only in cross-section.
+**Controls.** Colour by neuron type, or by any single gene — which recolours the
+neurites too, not just the cell bodies, so a gene like `mec-7` lights up whole
+processes. Jump to a neuron by name. Toggle the body wall, the labels and the
+synapses. Show or hide each neuron group. Spread crowded cell bodies apart — which
+never moves a neuron *along* the body, only in cross-section.
+
+Turning the **body wall** off makes clicking easier: the cell bodies sit inside it,
+so it can absorb a click aimed at one.
 
 **Side panel.** What the neuron sends to and receives from, with synapse counts;
 its most strongly expressed genes; and which watch-list genes are on in it.
@@ -55,7 +72,7 @@ wormview/
   figure.py          the Plotly 3D scene
   panel.py           the side panel
   theme.py           colours and fonts
-tests/               64 tests
+tests/               77 tests
 ```
 
 ## Data sources
@@ -104,6 +121,10 @@ They target the places where an error would be silent rather than loud:
   natural curved posture — the S-curve is real, not a bug.
 - **Expression is L4 (near-adult)** while wiring is built earlier in development.
 - **Chemical synapses only** in the current view; gap junctions are in the data.
+- **Synapse positions are estimated.** The connectome gives partner pairs and
+  synapse counts, not coordinates, so each synapse is drawn where the two neurons'
+  neurites come closest. Median gap 0 µm, 95th percentile 1.5 µm — a good estimate,
+  but not a measurement.
 - **The body wall is schematic**, fitted to the neurite cloud rather than a real
   outline.
 - For secreted proteins CeNGEN's neuron-only sampling means **absence proves
