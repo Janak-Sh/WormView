@@ -1,4 +1,4 @@
-# wormview
+# Wormview
 
 An interactive 3D explorer for the *C. elegans* nervous system.
 
