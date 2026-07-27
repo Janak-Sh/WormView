@@ -7,7 +7,7 @@ All 302 neurons at their **real positions inside the animal**, drawn with their
 expression of any of ~13,700 genes. Click a cell body to see what it connects to
 and what it expresses.
 
-Three public datasets joined into one browsable picture — no Blender, no Docker.
+Three public datasets joined into one browsable picture
 
 ![Rotating the nervous system in 3D](assets/3d_viewer.gif)
 
