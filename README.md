@@ -127,8 +127,7 @@ They target the places where an error would be silent rather than loud:
   but not a measurement.
 - **The body wall is schematic**, fitted to the neurite cloud rather than a real
   outline.
-- For secreted proteins CeNGEN's neuron-only sampling means **absence proves
-  nothing**; the panel says so for the genes it affects.
+
 
 ## Licence
 
